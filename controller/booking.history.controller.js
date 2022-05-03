@@ -5,6 +5,13 @@ const CompanyData = require('../company.data')
 const { PromisePool } = require('@supercharge/promise-pool');
 const res = require('express/lib/response');
 const TripData = require('../config/sequelize').TripData
+const perf = require('execution-time')();
+const MESSAGE = require('../message')
+var Bottleneck = require("bottleneck/es5");
+const limiter = new Bottleneck({
+    maxConcurrent: 10,
+    minTime: 1000
+  });
 
 const getBookingHistory = async (start, end, limit, offset) => {
     try {
@@ -28,7 +35,7 @@ const getBookingHistory = async (start, end, limit, offset) => {
             }
         })
     } catch (error) {
-        return error
+        console.log("Error making API Calls " ,error)
     }
 }
 
@@ -70,7 +77,7 @@ const getAllDriversHoursWorked = async (start, end) => {
             }
         })
     } catch (error) {
-        return error
+        console.log("Error making API Calls " ,error)
     }
 }
 
@@ -112,8 +119,8 @@ const processBookingResponse = async (start, end, response, processedHoursWorked
         PTNo = CompanyData.PTNo,
         NSCNo = CompanyData.NSCNo,
         SvcTypCd = CompanyData.SvcTypCd,
-        StartDt = start,
-        EndDt = end,
+        StartDt = null,
+        EndDt = null,
         ShiftID = null,
         vehicle: { reg: VehRegNo },
         VehRegJur = CompanyData.VehRegJur,
@@ -148,8 +155,8 @@ const processBookingResponse = async (start, end, response, processedHoursWorked
         destination: { actual_lat: DropoffLat },
         destination: { actual_lng: DropoffLng },
     }) => {
-        StartDt = StartDt.split('T')[0] + 'Z'
-        EndDt = EndDt.split('T')[0] + 'Z'
+        // StartDt = StartDt.split('T')[0] + 'Z'
+        // EndDt = EndDt.split('T')[0] + 'Z'
         TripStatusCd = formatTripStatusCd(TripStatusCd)
         HailTypeCd = formatHailTypeCd(HailTypeCd)
         HailAnswerSecs = getTimeElapsedInSecs(VehAssgnmtDt, HailInitDt)
@@ -158,11 +165,17 @@ const processBookingResponse = async (start, end, response, processedHoursWorked
         if (ShiftStartDate !== "N/A" && ShiftEndDate !== "N/A") {
             ShiftStartDT = ShiftStartDate.toISOString()
             ShiftEndDT = ShiftEndDate.toISOString()
+            StartDt = ShiftStartDT.split('T')[0] + 'Z'
+            EndDt = ShiftEndDT.split('T')[0] + 'Z'
         }
         else {
             ShiftStartDT = ShiftStartDate
             ShiftEndDT = ShiftEndDate
+            StartDt = ShiftStartDT
+            EndDt = ShiftEndDT
         }
+
+    
         ShiftID = DriverId + ShiftStartDateInSecs + ShiftEndDateInSecs + TripID
         PreBookedYN = PreBooked ? "Y" : "N"
         TripDurationMins = parseInt(getTimeElapsedInSecs(VehAssgnmtDt, DropoffArrDt) / 60);
@@ -227,7 +240,8 @@ const processBookingResponse = async (start, end, response, processedHoursWorked
 }
 const combineAllDriverShifts = async (hoursWorkedResponse) => {
     let result = []
-    hoursWorkedResponse.forEach(shift => {
+    // console.log("HOURS ", hoursWorkedResponse)
+    hoursWorkedResponse.data.body.hours.forEach(shift => {
         let matched = result.find(element => element.driver_id === shift.driver_id && element.to === shift.from)
         if (matched) matched.to = shift.to
         else result.push({ driver_id: shift.driver_id, from: shift.from, to: shift.to })
@@ -247,193 +261,269 @@ const updateOrCreate = async(model, where, item) => {
 }
 
 const processTripDataWithin = async (start, end, hoursWorkedResponse, limit, offset) => {
+    
     //Get all booking within a time frame
     //Format the booking data according to PTB format
     //Get all driver hours worked within the same day
     //While looping through the booking data, use driver id and search in hours worked response to find his hours
     //combine all of his hours by sum (all(from) + all(to))
     //return as shift start date, and shift end date
-
-    // console.log("I'm here", offset )
     const bookingResponse = await getBookingHistory(start, end, limit, offset)
-    const total_processed = bookingResponse.data.body.total
-    const total_available = bookingResponse.data.body.total_available
+    // console.log(bookingResponse)
     // console.log("Total Available", total_available)
-    const processedHoursWorkedResponse = await combineAllDriverShifts(hoursWorkedResponse.data.body.hours)
-
+    const processedHoursWorkedResponse = await combineAllDriverShifts(hoursWorkedResponse)
     // console.log(bookingResponse.data.body)
     if (bookingResponse.data.body.bookings && hoursWorkedResponse.data.body.hours) {
         //if current_total <= total_available
         //create n request where n = Math.floor(total_available / limit)
         const processedData = await processBookingResponse(start, end, bookingResponse.data.body.bookings, processedHoursWorkedResponse)
-        console.log(processedData)
         if (processedData) {
-            // fs.writeFile('submit_data_' + offset.toString() + '.json', JSON.stringify(processedData), function (err) {
-            //     if (err) throw new Error ('Fail to write files')
-            // })
-
             //filter out NA fields
-            const filteredData = processedData.filter(data =>
-                data.VehRegNo.length >= 5 &&
-                data.DriversLicNo >= 5 &&
+            // console.log('processed data size: ', processedData.length)
+            const filteredData = await processedData.filter(data =>
+                data.VehRegNo.length >= 5 
+                &&
+                data.DriversLicNo >= 5 
+                &&
                 data.ShiftStartDT !== "N/A" &&
                 data.ShiftEndDT !== "N/A" &&
                 new Date(end) >= new Date(data.VehAssgnmtDt) &&
-                new Date(start) <= new Date(data.VehAssgnmtDt))
-
+                new Date(start) <= new Date(data.VehAssgnmtDt)
+            )
             filteredData.forEach(trip => {
-                updateOrCreate(TripData, {TripID: trip.TripID}, trip).then().catch((err) => {
-                    return ["FAILED", 0, total_available]
+                updateOrCreate(TripData, {TripID: trip.TripID}, trip).then()
+                .catch((err) => {
+                    return MESSAGE.FAILED
                 })})
-            
-            return ["SUCCESSFUL", total_processed, total_available]
-            
+
+            // console.log("filter data length for date from: ", start, "to: ", end, "is: ", filteredData.length)
+            return MESSAGE.SUCCESSFUL
+        }
+        else {
+            return "F"
         }
     }
-                
-    //         filteredData.forEach(trip => {
-    //             //Write trip data to database
-    //             TripData.findOrCreate({
-    //                 where: {
-    //                     TripID: trip.TripID
-    //                 },
-    //                 defaults: {
-    //                     PTNo: trip.PTNo,
-    //                     NSCNo: trip.NSCNo,
-    //                     SvcTypCd: trip.SvcTypCd,
-    //                     StartDt: trip.StartDt,
-    //                     EndDt: trip.EndDt,
-    //                     ShiftID: trip.ShiftID,
-    //                     VehRegNo: trip.VehRegNo,
-    //                     VehRegJur: trip.VehRegJur,
-    //                     DriversLicNo: trip.DriversLicNo,
-    //                     DriversLicJur: trip.DriversLicJur,
-    //                     ShiftStartDT: trip.ShiftStartDt,
-    //                     ShiftEndDT: trip.ShiftEndDt,
-    //                     TripID: trip.TripID,
-    //                     TripTypeCd: trip.TripTypeCd,
-    //                     TripStatusCd: trip.TripStatusCd,
-    //                     HailTypeCd: trip.HailTypeCd,
-    //                     HailInitDt: trip.HailInitDt,
-    //                     HailAnswerSecs: trip.HailAnswerSecs,
-    //                     HailRqstdLat: trip.HailRqstdLat,
-    //                     HailRqstdLng: trip.HailRqstdLng,
-    //                     PreBookedYN: trip.PreBookedYN,
-    //                     SvcAnimalYN: trip.SvcAnimalYN,
-    //                     VehAssgnmtDt: trip.VehAssgnmtDt,
-    //                     VehAssgnmtLat: trip.VehAssgnmtLat,
-    //                     VehAssgnmtLng: trip.VehAssgnmtLng,
-    //                     PsngrCnt: trip.PsngrCnt,
-    //                     TripDurationMins: trip.TripDurationMins,
-    //                     TripDistanceKMs: trip.TripDistanceKMs,
-    //                     TtlFareAmt: trip.TtlFareAmt,
-    //                     PickupArrDt: trip.PickupArrDt,
-    //                     PickupDepDt: trip.PickupDepDt,
-    //                     PickupLat: trip.PickupLat,
-    //                     PickupLng: trip.PickupLng,
-    //                     DropoffArrDt: trip.DropoffArrDt,
-    //                     DropoffDepDt: trip.DropoffDepDt,
-    //                     DropoffLat: trip.DropoffLat,
-    //                     DropoffLng: trip.DropoffLng
-    //                 }
-    //             }).then(t => {
-    //                 return ["SUCCESSFUL", total_processed, total_available]
-
-    //             }).catch((error => {
-    //                 console.log(error)
-    //                 return ["FAILED write to database", 0, total_available]
-    //             }))
-    //         })
-
-
-    //     }
-    //     else if (processedData === null) {
-    //         return ["FAILED", 0, total_available]
-    //     }
-    // }
-    // else {
-    //     return ["FAILED-400", 0, 0]
-    // }
+    else {
+        return "FA"
+    }
 }
 
 const processFirstTripDataWithin = async (start, end, limit, offset) => {
     const bookingResponse = await getBookingHistory(start, end, limit, offset)
     if (bookingResponse.data.body.total_available) {
         const total_available = bookingResponse.data.body.total_available
-        return ["SUCCESSFUL", total_available]
+        return [MESSAGE.SUCCESSFUL, total_available]
     }
     else {
-        return ["FAILED", 0]
+        return [MESSAGE.FAILED, 0]
     }
 }
 
-//Concurrency
-//First send GET request for limit 1
-//Check response and get total_available number
+const setTimeOutAndReturnValue = async(start, end, hoursWorkedResponse, limit, offset) => {
+    // let result;
+    // let promise = new Promise(function(resolve, reject) {
+    //     setTimeout(async() => {
+    //         // console.log("Time out for ", offset.timeOut)
+    //         result = await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset);
+    //         resolve(result)
+    //       }, offset.timeOut
+    //     )
+    // })
 
-//if total_available = 0, don't do Batch Processing
-
-//if total_available > 0
-//Batch Processing
-//Create N = Math.floor(total_available / 100) Batches, each batch process 100 trips, specify limit = 100
-
-//For each batch
-//Get trip data, driver shifts info and do all the calculations, and store it in a variable
-//Convert data into PTB format 
-//export data into submit_data.json
+    return await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset)
+    // return promise
+}
 
 //Process 1 batch/group of data. In here we process 100 data trips
-const processingSetOfTripData = async (start, end, hoursWorkedResponse, total_available, limit) => {
+const processingSetOfTripData = async (start, end, total_available,limit) => {
+    // let endAddOneHourDateObject = new Date(end)
+    // //Add 12 hours ahead for the end time so it can combine accurate shift schedule 
+    // //since some shifts might ended later than the specified end date
+    // //if we don't expand the end date time we cannot find the corresponding shift schedule for a driver
+    // endAddOneHourDateObject.setHours(endAddOneHourDateObject.getHours() + 12);
+    // let endDate = endAddOneHourDateObject.toISOString();
+    
+    let endAddOneHourDateObject = new Date(end)
+    //Add 12 hours ahead for the end time so it can combine accurate shift schedule 
+    //since some shifts might ended later than the specified end date
+    //if we don't expand the end date time we cannot find the corresponding shift schedule for a driver
+    endAddOneHourDateObject.setHours(endAddOneHourDateObject.getHours() + 12);
+    let endDate = endAddOneHourDateObject.toISOString();
+    const hoursWorkedResponse = await getAllDriversHoursWorked(start, endDate)
+    // //Get all driver shifts info and combine them together 
+    // const hoursWorkedResponse = await getAllDriversHoursWorked(start, endDate)
     //This function process 100 trips of data or defined based on limit variable
     //It will use Promise Pool to do concurrency processing on 100 trip of data
     let offsetArray = [];
+    // let currentTimeOut = 100;
     for (let i = 0; i < total_available; i = i + limit) {
-        offsetArray.push(i);
+        offsetArray.push({
+            offset: i,
+            // timeOut: currentTimeOut
+        });
+        // currentTimeOut += 100
     }
-    const { results, errors } = await PromisePool
+    // console.log(offsetArray)
+    // console.log("Offset array for : ", start, ", to: ", end, " total available: ")
+    const {results, errors} = await PromisePool
         .for(offsetArray)
-        .withConcurrency(100)
+        .withConcurrency(9)
         .process(async offset => {
-            await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset);
+            //for debugging
+            // return await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset);
+
+            //for production, only check if there is errors
+            return await setTimeOutAndReturnValue(start, end, hoursWorkedResponse, limit, offset)
+            // await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset);
         })
     return [results, errors]
+    // const results = await limiter.schedule(() => {
+    //     const answer = offsetArray.forEach(async offset => {
+    //         await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset)
+    //     })
+    //     console.log('asnwer', answer)
+    //     return answer;
+    // });
+    // console.log("results: ", results)
+    // return results
 }
 
 //Daily retrieval trip data
-exports.getBookingHistoryWithin = async (start, end, res) => {
-    //Get all driver shifts info and combine them together 
-    let endAddOneHourDateObject = new Date(end)
-    endAddOneHourDateObject.setHours(endAddOneHourDateObject.getHours() + 12);
-    let endDate = endAddOneHourDateObject.toISOString();
-    console.log("END DATE", endDate)
-    const hoursWorkedResponse = await getAllDriversHoursWorked(start, endDate)
-    const total_processed = 0; //Check if total_processed === total_available
-    const number_of_threads = 100;
-    //Call request with limit 1
-    const [initial_result, total_available] = await processFirstTripDataWithin(start, end, 1, 0)
-    if (initial_result === "SUCCESSFUL") {
-        //Do batch processing
-        console.log("Total available", total_available)
-        if (total_available <= 0) {
-            res.status(200).json({
-                message: "No Data to be processed"
-            })
+// exports.getBookingHistoryWithin = async (start, end, res) => {
+    
+//     //Initial call request with limit 1 to see how many available bookings 
+//     perf.start();
+//     const [initial_result, total_available] = await processFirstTripDataWithin(start, end, 1, 0)
+//     console.log("Initial call with limit = 1 elapsed in ms: " , perf.stop().time)
+
+//     if (initial_result == MESSAGE.SUCCESSFUL) {
+//         if (total_available <= 0) {
+//             res.status(MESSAGE.NO_DATA_PROCESSED_RESPONSE.httpCode).json({
+//                 message: MESSAGE.NO_DATA_PROCESSED_RESPONSE.message
+//             })
+//         }
+//         else {
+//             //Do batch processing
+//             await processingSetOfTripData(start, end, total_available, 100)
+//             res.status(MESSAGE.CONVERTED_SUCCESSFULLY_RESPONSE.httpCode).json({
+//                 message: MESSAGE.CONVERTED_SUCCESSFULLY_RESPONSE.message
+//             })
+//         }
+
+//     }
+//     else {
+//         res.status(MESSAGE.CONVERTED_FAILED_RESPONSE.httpCode).json({
+//             message: MESSAGE.CONVERTED_FAILED_RESPONSE.message
+//         })
+//     }
+// }
+
+const isDate = (date) => {
+    const regExp = new RegExp('^(-?(?:[1-9][0-9]*)?[0-9]{4})-(1[0-2]|0[1-9])-(3[01]|0[1-9]|[12][0-9])Z)');
+    return regExp.test(date);
+}
+
+const extractDays = async (start, end) => {
+    try {
+        if (isDate(start) && isDate(end)) {
+            const startDate = new Date(start)
+            const endDate = new Date(end)
+            const daysElapsed = (endDate - startDate) / (1000 * 3600 * 24);
+            if (daysElapsed < 0) {
+                throw ("Dates combination not valid")
+            }
+            return daysElapsed
         }
         else {
-            const [res1, err1] = await processingSetOfTripData(start, end, hoursWorkedResponse, total_available, 100)
-            res.json({
-                result: "Converted successfully",
-                err: err1
-            })
+            throw ("Date is not properly formatted")
         }
-
+    } catch (err) {
+        return err
     }
-    else {
-        console.log("Error")
-        res.status(500).json({
-            message: "System error"
+}
+
+const convertToSmallerDates = async (start, end) => {
+    const dateArray = []
+
+    let initialDate = new Date(start)
+
+    let currentDate = new Date(start)
+    currentDate = new Date(currentDate.setTime(currentDate.getTime() + 1000*60*60*24))
+
+    let temp = new Date(currentDate)
+
+    let endDate = new Date(end)
+    if (initialDate.getTime() <= endDate.getTime()) {
+        dateArray.push({ from: initialDate.toISOString(), to: currentDate.toISOString() })
+    }
+    else if (initialDate.getTime() > endDate.getTime()) return dateArray
+
+    while (temp <= endDate) {
+        const startDate = new Date(temp)
+        const endDate = new Date(temp.setDate(temp.getDate() + 1))
+        dateArray.push({
+            from: startDate.toISOString(),
+            to: endDate.toISOString()
         })
     }
 
-
+    return dateArray
 }
+
+const processDailyBatch = async (start, end) => {
+    // let endAddOneHourDateObject = new Date(end)
+    // //Add 12 hours ahead for the end time so it can combine accurate shift schedule 
+    // //since some shifts might ended later than the specified end date
+    // //if we don't expand the end date time we cannot find the corresponding shift schedule for a driver
+    // endAddOneHourDateObject.setHours(endAddOneHourDateObject.getHours() + 12);
+    // let endDate = endAddOneHourDateObject.toISOString();
+    
+    //Get all driver shifts info and combine them together 
+    
+    //Initial call request with limit 1 to see how many available bookings 
+    perf.start();
+    const [initial_result, total_available] = await processFirstTripDataWithin(start, end, 1, 0)
+    console.log("Initial call with limit = 1 elapsed in ms: " , perf.stop().time, " Total Available: ", total_available)
+    if (initial_result == MESSAGE.SUCCESSFUL) {
+        if (total_available <= 0) {
+            return false
+        }
+        else {
+            //Do batch processing
+            const results = await processingSetOfTripData(start, end, total_available,  100)
+            results.forEach(result => {
+                if (result !== 'SUCCESSFUL') return false
+            })
+            // if (errors.length > 0) return false
+            console.log('re', results)
+            return true
+        }
+    }
+    return false
+}
+
+exports.ONSTART_getBookingHistoryWithin = async (start, end) => {
+    // const dateRangeArray = await convertToSmallerDates(start, end);
+    // if (dateRangeArray.length > 0){
+
+    //     for (let i = 0; i < dateRangeArray.length; i++){
+    //         await setTimeout(async() => {
+    //             console.log('processing from: ', dateRangeArray[i].from, ' to: ', dateRangeArray[i].to)
+    //             const isSuccessful = await processDailyBatch(dateRangeArray[i].from, dateRangeArray[i].to)
+    //             if (isSuccessful) console.log("Successfully convert data from ", dateRangeArray[i].from, ",to: ", dateRangeArray[i].to)
+    //             else console.log("The conversion failed from ", dateRangeArray[i].from, ",to: ", dateRangeArray[i].to)
+    //         }, i * 10000)
+    //     }
+    // }
+    // else {
+    //     console.log("Invalid Start End Date Combination")
+    // }
+
+    
+        console.log('processing from: ', start, ' to: ', end)
+        const isSuccessful = await processDailyBatch(start, end)
+        if (isSuccessful) console.log("Successfully convert data from ", start, ",to: ", end)
+        else console.log("The conversion failed from ", start, ",to: ", end)
+    
+}
+

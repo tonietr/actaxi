@@ -77,18 +77,24 @@ const convertToSmallerDates = async (start, end) => {
     const dateArray = []
 
     let initialDate = new Date(start)
+
     let currentDate = new Date(start)
+    currentDate = new Date(currentDate.setTime(currentDate.getTime() + 1000*60*60*24))
+
+    let temp = new Date(currentDate)
+
     let endDate = new Date(end)
     if (initialDate.getTime() <= endDate.getTime()) {
-        dateArray.push({ from: initialDate, to: initialDate })
+        dateArray.push({ from: initialDate.toISOString(), to: currentDate.toISOString() })
     }
-    else if (currentDate.getTime() > endDate.getTime()) return dateArray
+    else if (initialDate.getTime() > endDate.getTime()) return dateArray
 
-    while (currentDate < endDate) {
-        const date = new Date(currentDate.setDate(currentDate.getDate() + 1))
+    while (temp <= endDate) {
+        const startDate = new Date(temp)
+        const endDate = new Date(temp.setDate(temp.getDate() + 1))
         dateArray.push({
-            from: date,
-            to: date
+            from: startDate.toISOString(),
+            to: endDate.toISOString()
         })
     }
 
@@ -112,21 +118,21 @@ const getTripData = async (start, end) => {
 
 const processInBatch = async (start, end) => {
     const arr = await convertToSmallerDates(start, end)
+    let answer = [];
     const { results, errors } = await PromisePool
         .for(arr)
-        .withConcurrency(arr.length)
+        .withConcurrency(10)
         .process(async range => {
             //get trip data
             //convert them to xml
             //return the xml in an array
             const dailyTripData = await getTripData(range.from, range.to);
-            let answer = [];
+            console.log("trip data length: " ,dailyTripData.length)
             for (let i = 0; i < dailyTripData.length; i++) {
-                answer.push(await convertSingleTripData(dailyTripData[i]));
+                answer.push(await convertSingleTripData(dailyTripData[i]))
             }
-            return answer;
         })
-    return [results, errors]
+    return [answer, errors]
 }
 
 exports.getBookingWithin = async (start, end, req, res) => {
@@ -134,7 +140,6 @@ exports.getBookingWithin = async (start, end, req, res) => {
     //First pull all data from date A to date B
     //do concurrency to convert all trip to xml format
     //add the header and save the files
-
     const numberOfDays = await extractDays(start, end)
     if (typeof numberOfDays === 'string') res.status(401).send({ response: numberOfDays })
     else {
@@ -143,6 +148,7 @@ exports.getBookingWithin = async (start, end, req, res) => {
             //let's say n days, make n promise pool and get all data from a single day
             //convert that day into xml format, specifically store it in shift data array, trip data array
             //add the header and save the files
+            console.log("heelo")
             var Header = {
 
                 //UserID and ApplicationID mostly used for WebService API.
@@ -160,11 +166,10 @@ exports.getBookingWithin = async (start, end, req, res) => {
 
             const [results, errors] = await processInBatch(start, end)
             // console.log("results", results)
-            results.forEach(day => {
-                day.forEach(trip => {
-                    Shift.push(trip.Shift)
-                    Trip.push(trip.Trip)
-                })
+            console.log("ressss: ", results)
+            results.forEach(trip => {
+                Shift.push(trip.Shift)
+                Trip.push(trip.Trip)
             })
 
             var ShiftData = {
@@ -174,8 +179,6 @@ exports.getBookingWithin = async (start, end, req, res) => {
             var TripData = {
                 Trip
             }
-            // console.log("SD",ShiftData)
-            // console.log("TD",TripData)
             var submission = {
                 "@": {
                     'xmlns:xsi': "http://www.w3.org/2001/XMLSchema-instance",
@@ -197,6 +200,8 @@ exports.getBookingWithin = async (start, end, req, res) => {
             })
         }
     }
+
+    //WIP wait for the JWT Token from PTB
 
     // const {shift, trip} = await convertSingleTripData()
 
