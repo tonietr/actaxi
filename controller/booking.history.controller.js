@@ -8,12 +8,8 @@ const TripData = require('../config/sequelize').TripData
 const perf = require('execution-time')();
 const MESSAGE = require('../message')
 var Bottleneck = require("bottleneck/es5");
-const limiter = new Bottleneck({
-    maxConcurrent: 10,
-    minTime: 1000
-  });
 
-const getBookingHistory = async (start, end, limit, offset) => {
+const getBookingHistory = async(start, end, limit, offset) => {
     try {
         return await axios.get('https://api.icabbicanada.com/ca2/bookings/history', {
             headers: {
@@ -82,20 +78,11 @@ const getAllDriversHoursWorked = async (start, end) => {
 }
 
 const extractShiftInfoByDriverId = (driverId, bookedDate, closeDate, processedHoursWorkedResponse) => {
-    //use pickup since some closed_date extended way beyond driver's shift
-    //legit if 'from' <= 'booked_date' && if 'to' >= 'close_date'
     const bookedDateInSecs = new Date(bookedDate).getTime() / 1000;
     const closeDateInSecs = new Date(closeDate).getTime() / 1000;
-    // console.log(bookedDateInSecs)
-    // console.log(closedDateInSecs)
-    // console.log('driverId', driverId.toString())
     driverId = driverId.toString()
-    // console.log(driverId)
-    // console.log("BOOKEDDATE", bookedDateInSecs)
-    // console.log("closeDateInSecs", closeDateInSecs)
     const driverShift = processedHoursWorkedResponse.find(shift =>
         shift.driver_id === driverId && shift.from <= bookedDateInSecs && shift.to >= closeDateInSecs)
-    // console.log(driverShift)
     let driverShiftFrom = "N/A";
     let driverShiftTo = "N/A";
     if (driverShift) {
@@ -261,7 +248,6 @@ const updateOrCreate = async(model, where, item) => {
 }
 
 const processTripDataWithin = async (start, end, hoursWorkedResponse, limit, offset) => {
-    
     //Get all booking within a time frame
     //Format the booking data according to PTB format
     //Get all driver hours worked within the same day
@@ -274,12 +260,9 @@ const processTripDataWithin = async (start, end, hoursWorkedResponse, limit, off
     const processedHoursWorkedResponse = await combineAllDriverShifts(hoursWorkedResponse)
     // console.log(bookingResponse.data.body)
     if (bookingResponse.data.body.bookings && hoursWorkedResponse.data.body.hours) {
-        //if current_total <= total_available
-        //create n request where n = Math.floor(total_available / limit)
         const processedData = await processBookingResponse(start, end, bookingResponse.data.body.bookings, processedHoursWorkedResponse)
         if (processedData) {
             //filter out NA fields
-            // console.log('processed data size: ', processedData.length)
             const filteredData = await processedData.filter(data =>
                 data.VehRegNo.length >= 5 
                 &&
@@ -295,16 +278,15 @@ const processTripDataWithin = async (start, end, hoursWorkedResponse, limit, off
                 .catch((err) => {
                     return MESSAGE.FAILED
                 })})
-
-            // console.log("filter data length for date from: ", start, "to: ", end, "is: ", filteredData.length)
             return MESSAGE.SUCCESSFUL
         }
         else {
-            return "F"
+            return "Failed"
         }
     }
     else {
-        return "FA"
+        console.log("From iCabbi" ,bookingResponse.data.message)
+        return "Failed"
     }
 }
 
@@ -318,169 +300,111 @@ const processFirstTripDataWithin = async (start, end, limit, offset) => {
         return [MESSAGE.FAILED, 0]
     }
 }
-
-const setTimeOutAndReturnValue = async(start, end, hoursWorkedResponse, limit, offset) => {
-    // let result;
-    // let promise = new Promise(function(resolve, reject) {
-    //     setTimeout(async() => {
-    //         // console.log("Time out for ", offset.timeOut)
-    //         result = await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset);
-    //         resolve(result)
-    //       }, offset.timeOut
-    //     )
-    // })
-
-    return await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset)
-    // return promise
-}
+//THIS FUNCTION USES SET TIMEOUT TO REDUCE THE OVERHEAD REQUEST
+// const setTimeOutAndReturnValue = async(start, end, hoursWorkedResponse, limit, offset) => {
+//     let result;
+//     let promise = new Promise(function(resolve, reject) {
+//         setTimeout(async() => {
+//             // console.log("Time out for ", offset.timeOut)
+//             result = await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset);
+//             resolve(result)
+//           }, offset.timeOut
+//         )
+//     })
+//     return promise
+// }
 
 //Process 1 batch/group of data. In here we process 100 data trips
 const processingSetOfTripData = async (start, end, total_available,limit) => {
-    // let endAddOneHourDateObject = new Date(end)
-    // //Add 12 hours ahead for the end time so it can combine accurate shift schedule 
-    // //since some shifts might ended later than the specified end date
-    // //if we don't expand the end date time we cannot find the corresponding shift schedule for a driver
-    // endAddOneHourDateObject.setHours(endAddOneHourDateObject.getHours() + 12);
-    // let endDate = endAddOneHourDateObject.toISOString();
-    
     let endAddOneHourDateObject = new Date(end)
     //Add 12 hours ahead for the end time so it can combine accurate shift schedule 
     //since some shifts might ended later than the specified end date
     //if we don't expand the end date time we cannot find the corresponding shift schedule for a driver
     endAddOneHourDateObject.setHours(endAddOneHourDateObject.getHours() + 12);
     let endDate = endAddOneHourDateObject.toISOString();
+
+    //Get all driver shifts info and combine them together 
     const hoursWorkedResponse = await getAllDriversHoursWorked(start, endDate)
-    // //Get all driver shifts info and combine them together 
-    // const hoursWorkedResponse = await getAllDriversHoursWorked(start, endDate)
-    //This function process 100 trips of data or defined based on limit variable
-    //It will use Promise Pool to do concurrency processing on 100 trip of data
+    
     let offsetArray = [];
-    // let currentTimeOut = 100;
+    let currentTimeOut = 1000;
     for (let i = 0; i < total_available; i = i + limit) {
         offsetArray.push({
             offset: i,
-            // timeOut: currentTimeOut
+            timeOut: currentTimeOut
         });
-        // currentTimeOut += 100
+        currentTimeOut += 1000
     }
-    // console.log(offsetArray)
-    // console.log("Offset array for : ", start, ", to: ", end, " total available: ")
-    const {results, errors} = await PromisePool
+    let answer = [];
+    
+    await PromisePool
         .for(offsetArray)
-        .withConcurrency(9)
+        //use 2 since iCabbi allows only 2 concurrent requests at the same time
+        .withConcurrency(1)
         .process(async offset => {
-            //for debugging
-            // return await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset);
-
-            //for production, only check if there is errors
-            return await setTimeOutAndReturnValue(start, end, hoursWorkedResponse, limit, offset)
+            // answer.push(await setTimeOutAndReturnValue(start, end, hoursWorkedResponse, limit, offset))
+            answer.push(await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset));
             // await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset);
         })
-    return [results, errors]
-    // const results = await limiter.schedule(() => {
-    //     const answer = offsetArray.forEach(async offset => {
-    //         await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset)
-    //     })
-    //     console.log('asnwer', answer)
-    //     return answer;
-    // });
-    // console.log("results: ", results)
-    // return results
+    return answer
 }
 
-//Daily retrieval trip data
-// exports.getBookingHistoryWithin = async (start, end, res) => {
-    
-//     //Initial call request with limit 1 to see how many available bookings 
-//     perf.start();
-//     const [initial_result, total_available] = await processFirstTripDataWithin(start, end, 1, 0)
-//     console.log("Initial call with limit = 1 elapsed in ms: " , perf.stop().time)
+//CHECK IF THE DATE IS THE CORRECT FORMAT
+// const isDate = (date) => {
+//     const regExp = new RegExp('^(-?(?:[1-9][0-9]*)?[0-9]{4})-(1[0-2]|0[1-9])-(3[01]|0[1-9]|[12][0-9])Z)');
+//     return regExp.test(date);
+// }
 
-//     if (initial_result == MESSAGE.SUCCESSFUL) {
-//         if (total_available <= 0) {
-//             res.status(MESSAGE.NO_DATA_PROCESSED_RESPONSE.httpCode).json({
-//                 message: MESSAGE.NO_DATA_PROCESSED_RESPONSE.message
-//             })
+//THESE CODE USED FOR SMALLER BATCH PROCESSING
+// const extractDays = async (start, end) => {
+//     try {
+//         if (isDate(start) && isDate(end)) {
+//             const startDate = new Date(start)
+//             const endDate = new Date(end)
+//             const daysElapsed = (endDate - startDate) / (1000 * 3600 * 24);
+//             if (daysElapsed < 0) {
+//                 throw ("Dates combination not valid")
+//             }
+//             return daysElapsed
 //         }
 //         else {
-//             //Do batch processing
-//             await processingSetOfTripData(start, end, total_available, 100)
-//             res.status(MESSAGE.CONVERTED_SUCCESSFULLY_RESPONSE.httpCode).json({
-//                 message: MESSAGE.CONVERTED_SUCCESSFULLY_RESPONSE.message
-//             })
+//             throw ("Date is not properly formatted")
 //         }
-
-//     }
-//     else {
-//         res.status(MESSAGE.CONVERTED_FAILED_RESPONSE.httpCode).json({
-//             message: MESSAGE.CONVERTED_FAILED_RESPONSE.message
-//         })
+//     } catch (err) {
+//         return err
 //     }
 // }
 
-const isDate = (date) => {
-    const regExp = new RegExp('^(-?(?:[1-9][0-9]*)?[0-9]{4})-(1[0-2]|0[1-9])-(3[01]|0[1-9]|[12][0-9])Z)');
-    return regExp.test(date);
-}
+// const convertToSmallerDates = async (start, end) => {
+//     const dateArray = []
 
-const extractDays = async (start, end) => {
-    try {
-        if (isDate(start) && isDate(end)) {
-            const startDate = new Date(start)
-            const endDate = new Date(end)
-            const daysElapsed = (endDate - startDate) / (1000 * 3600 * 24);
-            if (daysElapsed < 0) {
-                throw ("Dates combination not valid")
-            }
-            return daysElapsed
-        }
-        else {
-            throw ("Date is not properly formatted")
-        }
-    } catch (err) {
-        return err
-    }
-}
+//     let initialDate = new Date(start)
 
-const convertToSmallerDates = async (start, end) => {
-    const dateArray = []
+//     let currentDate = new Date(start)
+//     currentDate = new Date(currentDate.setTime(currentDate.getTime() + 1000*60*60*24))
 
-    let initialDate = new Date(start)
+//     let temp = new Date(currentDate)
 
-    let currentDate = new Date(start)
-    currentDate = new Date(currentDate.setTime(currentDate.getTime() + 1000*60*60*24))
+//     let endDate = new Date(end)
+//     if (initialDate.getTime() <= endDate.getTime()) {
+//         dateArray.push({ from: initialDate.toISOString(), to: currentDate.toISOString() })
+//     }
+//     else if (initialDate.getTime() > endDate.getTime()) return dateArray
 
-    let temp = new Date(currentDate)
+//     while (temp <= endDate) {
+//         const startDate = new Date(temp)
+//         const endDate = new Date(temp.setDate(temp.getDate() + 1))
+//         dateArray.push({
+//             from: startDate.toISOString(),
+//             to: endDate.toISOString()
+//         })
+//     }
 
-    let endDate = new Date(end)
-    if (initialDate.getTime() <= endDate.getTime()) {
-        dateArray.push({ from: initialDate.toISOString(), to: currentDate.toISOString() })
-    }
-    else if (initialDate.getTime() > endDate.getTime()) return dateArray
-
-    while (temp <= endDate) {
-        const startDate = new Date(temp)
-        const endDate = new Date(temp.setDate(temp.getDate() + 1))
-        dateArray.push({
-            from: startDate.toISOString(),
-            to: endDate.toISOString()
-        })
-    }
-
-    return dateArray
-}
+//     return dateArray
+// }
 
 const processDailyBatch = async (start, end) => {
-    // let endAddOneHourDateObject = new Date(end)
-    // //Add 12 hours ahead for the end time so it can combine accurate shift schedule 
-    // //since some shifts might ended later than the specified end date
-    // //if we don't expand the end date time we cannot find the corresponding shift schedule for a driver
-    // endAddOneHourDateObject.setHours(endAddOneHourDateObject.getHours() + 12);
-    // let endDate = endAddOneHourDateObject.toISOString();
-    
-    //Get all driver shifts info and combine them together 
-    
-    //Initial call request with limit 1 to see how many available bookings 
+     //Initial call request with limit 1 to see how many available bookings 
     perf.start();
     const [initial_result, total_available] = await processFirstTripDataWithin(start, end, 1, 0)
     console.log("Initial call with limit = 1 elapsed in ms: " , perf.stop().time, " Total Available: ", total_available)
@@ -490,12 +414,12 @@ const processDailyBatch = async (start, end) => {
         }
         else {
             //Do batch processing
-            const results = await processingSetOfTripData(start, end, total_available,  100)
+            const results = await processingSetOfTripData(start, end, total_available,  200)
             results.forEach(result => {
                 if (result !== 'SUCCESSFUL') return false
             })
-            // if (errors.length > 0) return false
-            console.log('re', results)
+            console.log('results of converting (Please note that anything noted as Failed is failed to convert, which means data is missing from iCabbi')
+            console.log(results)
             return true
         }
     }
@@ -503,27 +427,11 @@ const processDailyBatch = async (start, end) => {
 }
 
 exports.ONSTART_getBookingHistoryWithin = async (start, end) => {
-    // const dateRangeArray = await convertToSmallerDates(start, end);
-    // if (dateRangeArray.length > 0){
-
-    //     for (let i = 0; i < dateRangeArray.length; i++){
-    //         await setTimeout(async() => {
-    //             console.log('processing from: ', dateRangeArray[i].from, ' to: ', dateRangeArray[i].to)
-    //             const isSuccessful = await processDailyBatch(dateRangeArray[i].from, dateRangeArray[i].to)
-    //             if (isSuccessful) console.log("Successfully convert data from ", dateRangeArray[i].from, ",to: ", dateRangeArray[i].to)
-    //             else console.log("The conversion failed from ", dateRangeArray[i].from, ",to: ", dateRangeArray[i].to)
-    //         }, i * 10000)
-    //     }
-    // }
-    // else {
-    //     console.log("Invalid Start End Date Combination")
-    // }
-
-    
-        console.log('processing from: ', start, ' to: ', end)
-        const isSuccessful = await processDailyBatch(start, end)
-        if (isSuccessful) console.log("Successfully convert data from ", start, ",to: ", end)
-        else console.log("The conversion failed from ", start, ",to: ", end)
-    
+    console.log('processing from: ', start, ' to: ', end)
+    perf.start()
+    const isSuccessful = await processDailyBatch(start, end)
+    if (isSuccessful) console.log("Successfully convert data from ", start, ",to: ", end)
+    else console.log("The conversion failed from ", start, ",to: ", end)
+    console.log("The conversion from " , start, " ,to ", end, "took " , perf.stop().time)   
 }
 

@@ -7,7 +7,7 @@ const jwt = require('../jwt')
 const TripData = require('../config/sequelize').TripData
 const { PromisePool } = require('@supercharge/promise-pool')
 
-convertSingleTripData = async (trip) => {
+const convertSingleTripData = async (trip) => {
     var Shift = {
         ShiftID: trip.ShiftID,
         VehRegNo: trip.VehRegNo,
@@ -50,7 +50,7 @@ convertSingleTripData = async (trip) => {
 }
 
 const isDate = (date) => {
-    const regExp = new RegExp('^(-?(?:[1-9][0-9]*)?[0-9]{4})-(1[0-2]|0[1-9])-(3[01]|0[1-9]|[12][0-9])Z)');
+    const regExp = new RegExp('^(-?(?:[1-9][0-9]*)?[0-9]{4})-(1[0-2]|0[1-9])-(3[01]|0[1-9]|[12][0-9])Z');
     return regExp.test(date);
 }
 
@@ -89,7 +89,7 @@ const convertToSmallerDates = async (start, end) => {
     }
     else if (initialDate.getTime() > endDate.getTime()) return dateArray
 
-    while (temp <= endDate) {
+    while (temp < endDate) {
         const startDate = new Date(temp)
         const endDate = new Date(temp.setDate(temp.getDate() + 1))
         dateArray.push({
@@ -103,17 +103,17 @@ const convertToSmallerDates = async (start, end) => {
 
 
 const getTripData = async (start, end) => {
-    const trips = await TripData.findAll({
+    const answer =  await TripData.findAll({
         where: {
             StartDt: {
                 [Op.eq]: start
             },
             EndDt: {
-                [Op.eq]: end
+                [Op.lte]: end
             }
         }
     })
-    return trips;
+    return answer;
 }
 
 const processInBatch = async (start, end) => {
@@ -121,13 +121,12 @@ const processInBatch = async (start, end) => {
     let answer = [];
     const { results, errors } = await PromisePool
         .for(arr)
-        .withConcurrency(10)
+        .withConcurrency(100)
         .process(async range => {
             //get trip data
             //convert them to xml
             //return the xml in an array
             const dailyTripData = await getTripData(range.from, range.to);
-            console.log("trip data length: " ,dailyTripData.length)
             for (let i = 0; i < dailyTripData.length; i++) {
                 answer.push(await convertSingleTripData(dailyTripData[i]))
             }
@@ -148,9 +147,7 @@ exports.getBookingWithin = async (start, end, req, res) => {
             //let's say n days, make n promise pool and get all data from a single day
             //convert that day into xml format, specifically store it in shift data array, trip data array
             //add the header and save the files
-            console.log("heelo")
             var Header = {
-
                 //UserID and ApplicationID mostly used for WebService API.
                 UserID: 'nirvana',
                 ApplicationID: '0908099',
@@ -166,7 +163,6 @@ exports.getBookingWithin = async (start, end, req, res) => {
 
             const [results, errors] = await processInBatch(start, end)
             // console.log("results", results)
-            console.log("ressss: ", results)
             results.forEach(trip => {
                 Shift.push(trip.Shift)
                 Trip.push(trip.Trip)
@@ -189,10 +185,21 @@ exports.getBookingWithin = async (start, end, req, res) => {
                 TripData
             }
             var r = js2xmlparser.parse("PassengerTrip", submission)
-            fs.writeFile('xml_trip.xml', r, function (err) {
+            fs.writeFile('xml/auto_generated.xml', r, function (err) {
                 if (err) throw new Error('Fail to write files')
+                else {
+                    console.log('done')
+                    res.status(200).download('xml/auto_generated.xml', 'auto_generated.xml', function(err){
+                        if (err) console.log(err)
+                    })
+                }
             })
-            res.status(200).send({ response: results, err: errors })
+            // const file = await fs.readFile('xml/auto_generated.xml', r, function (err) {
+            //     if (err) throw new Error('Fail to write files')
+            // })
+            // res.status(200).download(fileUrl)
+            // res.status(200).send({message: 'unable to generate xml file'})
+            // res.status(200).download(file)
         }
         catch (err) {
             res.status(500).send({
@@ -202,9 +209,7 @@ exports.getBookingWithin = async (start, end, req, res) => {
     }
 
     //WIP wait for the JWT Token from PTB
-
     // const {shift, trip} = await convertSingleTripData()
-
     // var ShiftData = {...ShiftData, shift}
     // ShiftData.push(shift)
     // var TripData = {...TripData, trip}
@@ -218,7 +223,6 @@ exports.getBookingWithin = async (start, end, req, res) => {
     //     TripData
     // }
     // var result = js2xmlparser.parse("PassengerTrip", submission)
-
     // // const token = await jwt.generateJWToken()
     // // console.log();
     // fs.writeFile('xml_trip.xml', result, function (err) {

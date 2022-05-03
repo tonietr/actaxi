@@ -38,7 +38,8 @@ app.listen(port, async () => {
     console.log(`Listening on port ${port}!`)
     try {
         await sequelize.authenticate();
-        await sequelize.sync({force: true})
+        //use alter to update database
+        await sequelize.sync({alter: true})
         console.log("Connected to database")
         console.log("Pulling data from the start date until 7 days from now...")
         
