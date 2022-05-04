@@ -15,9 +15,9 @@
 
 //Production
 module.exports = {
-    HOST: "db-mysql-tor1-45825-do-user-11433732-0.b.db.ondigitalocean.com",
+    HOST: "db-mysql-tor1-88116-do-user-11504853-0.b.db.ondigitalocean.com",
     USER: "doadmin",
-    PASSWORD: "AVNS_FbffI5_MfdL60aC",
+    PASSWORD: "AVNS_pJMVwxozpKHCxQi",
     DB: "actaxi_TripData",
     dialect: "mysql",
     port: 25060,
