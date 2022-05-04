@@ -426,6 +426,24 @@ const processDailyBatch = async (start, end) => {
     return false
 }
 
+exports.getBookingHistoryWithin = async (start, end, res) => {
+    start = new Date(start).toISOString()
+    end = new Date(end).toISOString()
+    console.log('processing from: ', start, ' to: ', end)
+    perf.start()
+    const isSuccessful = await processDailyBatch(start, end)
+    console.log("The conversion from " , start, " ,to ", end, "took " , perf.stop().time)   
+    if (isSuccessful) {
+        console.log("Successfully convert data from ", start, ",to: ", end)
+        res.status(200).send("Successfully convert data from ", start, ",to: ", end)
+    }
+    else {
+        console.log("The conversion failed from ", start, ",to: ", end)
+        res.status(200).send("The conversion failed from " + start + ",to: " + end)
+    }
+    
+}
+
 exports.ONSTART_getBookingHistoryWithin = async (start, end) => {
     console.log('processing from: ', start, ' to: ', end)
     perf.start()
