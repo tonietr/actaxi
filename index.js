@@ -26,6 +26,10 @@ app.get('/getDriverShift', async (req, res) => {
     ShiftController.getShiftWithin('2022-03-22T00:00:00.000Z', '2022-03-22T00:30:00.000Z', req, res);
 });
 
+app.get('/welcome', (req, res) => {
+    res.send("Welcome to ACTaxi!")
+});
+
 app.get('/convertToXML', async (req,res) => {
     ConvertController.getBookingWithin(req.query.from, req.query.to, req, res);
 });
@@ -41,11 +45,11 @@ app.listen(port, async () => {
         //use alter to update database
         await sequelize.sync({alter: true})
         console.log("Connected to database")
-        console.log("Pulling data from the start date until 7 days from now...")
+        // console.log("Pulling data from the start date until 7 days from now...")
         
-        perf.start();
-        await BookingHistoryController.ONSTART_getBookingHistoryWithin(COMPANY_DATA.startDate, COMPANY_DATA.endDate);
-        console.log("Get Booking Data from" + "start: " + COMPANY_DATA.startDate + ", to end: " + COMPANY_DATA.endDate + ", Time Elapsed: ", perf.stop().time)
+        // perf.start();
+        // await BookingHistoryController.ONSTART_getBookingHistoryWithin(COMPANY_DATA.startDate, COMPANY_DATA.endDate);
+        // console.log("Retrieved Booking Data from" + "start: " + COMPANY_DATA.startDate + ", to end: " + COMPANY_DATA.endDate + ", which time elapsed in ms: ", perf.stop().time)
 
         
     }
