@@ -162,44 +162,44 @@ exports.getBookingWithin = async (start, end, req, res) => {
 
 
             const [results, errors] = await processInBatch(start, end)
-            // console.log("results", results)
-            results.forEach(trip => {
-                Shift.push(trip.Shift)
-                Trip.push(trip.Trip)
-            })
-
-            var ShiftData = {
-                Shift
+            
+            if (results.length == 0) {
+                res.status(200).send("No data is found within the specified date")
             }
-
-            var TripData = {
-                Trip
-            }
-            var submission = {
-                "@": {
-                    'xmlns:xsi': "http://www.w3.org/2001/XMLSchema-instance",
-                    'xsi:noNamespaceSchemaLocation': "PassengerTrip.xsd"
-                },
-                Header,
-                ShiftData,
-                TripData
-            }
-            var r = js2xmlparser.parse("PassengerTrip", submission)
-            fs.writeFile('xml/auto_generated.xml', r, function (err) {
-                if (err) throw new Error('Fail to write files')
-                else {
-                    console.log('done')
-                    res.status(200).download('xml/auto_generated.xml', 'auto_generated.xml', function(err){
-                        if (err) console.log(err)
-                    })
+            else {
+                results.forEach(trip => {
+                    Shift.push(trip.Shift)
+                    Trip.push(trip.Trip)
+                })
+    
+                var ShiftData = {
+                    Shift
                 }
-            })
-            // const file = await fs.readFile('xml/auto_generated.xml', r, function (err) {
-            //     if (err) throw new Error('Fail to write files')
-            // })
-            // res.status(200).download(fileUrl)
-            // res.status(200).send({message: 'unable to generate xml file'})
-            // res.status(200).download(file)
+    
+                var TripData = {
+                    Trip
+                }
+                var submission = {
+                    "@": {
+                        'xmlns:xsi': "http://www.w3.org/2001/XMLSchema-instance",
+                        'xsi:noNamespaceSchemaLocation': "PassengerTrip.xsd"
+                    },
+                    Header,
+                    ShiftData,
+                    TripData
+                }
+                var r = await js2xmlparser.parse("PassengerTrip", submission)
+                fs.writeFile('xml/auto_generated.xml', r, function (err) {
+                    if (err) throw new Error('Fail to write files')
+                    else {
+                        console.log('done')
+                        res.status(200).download('xml/auto_generated.xml', 'auto_generated.xml', function(err){
+                            if (err) console.log(err)
+                        })
+                    }
+                })
+            }
+            
         }
         catch (err) {
             res.status(500).send({

@@ -11,6 +11,7 @@ const ConvertController = require('./controller/convert.controller')
 const {sequelize} = require('./config/sequelize')
 const COMPANY_DATA = require('./company.data')
 const perf = require('execution-time')();
+// const cronPing = require('./cron-ping')
 app.use(cors());
 
 // Configuring body parser middleware
@@ -46,8 +47,8 @@ app.listen(port, async () => {
         perf.start();
         await BookingHistoryController.ONSTART_getBookingHistoryWithin(COMPANY_DATA.startDate, COMPANY_DATA.endDate);
         console.log("Get Booking Data from" + "start: " + COMPANY_DATA.startDate + ", to end: " + COMPANY_DATA.endDate + ", Time Elapsed: ", perf.stop().time)
-
         
+        // cronPing.cronSchedule()
     }
     catch (error) {
         console.error('Unable to connect to database')

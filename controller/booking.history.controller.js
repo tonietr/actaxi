@@ -273,11 +273,11 @@ const processTripDataWithin = async (start, end, hoursWorkedResponse, limit, off
                 new Date(end) >= new Date(data.VehAssgnmtDt) &&
                 new Date(start) <= new Date(data.VehAssgnmtDt)
             )
-            filteredData.forEach(trip => {
+            await filteredData.forEach(trip => {
                 updateOrCreate(TripData, {TripID: trip.TripID}, trip).then()
                 .catch((err) => {
                     return MESSAGE.FAILED
-                })})
+            })})
             return MESSAGE.SUCCESSFUL
         }
         else {
@@ -327,23 +327,19 @@ const processingSetOfTripData = async (start, end, total_available,limit) => {
     const hoursWorkedResponse = await getAllDriversHoursWorked(start, endDate)
     
     let offsetArray = [];
-    let currentTimeOut = 1000;
     for (let i = 0; i < total_available; i = i + limit) {
         offsetArray.push({
-            offset: i,
-            timeOut: currentTimeOut
+            offset: i
         });
-        currentTimeOut += 1000
     }
     let answer = [];
-    
     await PromisePool
         .for(offsetArray)
         //use 2 since iCabbi allows only 2 concurrent requests at the same time
         .withConcurrency(1)
         .process(async offset => {
             // answer.push(await setTimeOutAndReturnValue(start, end, hoursWorkedResponse, limit, offset))
-            answer.push(await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset));
+            answer.push(await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset));
             // await processTripDataWithin(start, end, hoursWorkedResponse, limit, offset.offset);
         })
     return answer
