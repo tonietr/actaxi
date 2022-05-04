@@ -1,7 +1,6 @@
 
 import "bootstrap/dist/css/bootstrap.min.css";
 import React, {useState} from 'react';
-import { format } from 'date-fns';
 import {DayPicker} from "react-day-picker";
 import 'react-day-picker/dist/style.css';
 import download from 'downloadjs';
@@ -19,13 +18,7 @@ function App() {
 
   let startfooter = <p>Please pick a day.</p>;
   let endfooter = <p>Please pick a day.</p>;
-  if (selectedStartDt) {
-    startfooter = <h6>Start Date {format(selectedStartDt, 'PP')}.</h6>;
-  }
-  if (selectedEndDt){
-    endfooter = <h6>End Date {format(selectedEndDt, 'PP')}.</h6>;
-  }
-
+  
   const requestXMLFiles = async () => {
     const start = selectedStartDt.toISOString().split('T')[0] + 'Z'
     const end = selectedEndDt.toISOString().split('T')[0] + 'Z'
@@ -48,7 +41,7 @@ function App() {
           onSelect={setSelectedStartDt}
           autoFocus={true}
           disabled={disabledDays}
-          footer={startfooter}/>
+          />
         </div>
         <div>
         <h4>Select End Date</h4>
@@ -60,7 +53,7 @@ function App() {
           minDate = {new Date()}
           maxDate= {maxDate}
           onSelect={setSelectedEndDt}
-          footer={endfooter}/>
+          />
         </div>
       </div>
       <div style={{paddingTop: '30px', display: 'flex', justifyContent: 'center'}}>
