@@ -12,8 +12,7 @@ const {sequelize} = require('./config/sequelize')
 const COMPANY_DATA = require('./company.data')
 const perf = require('execution-time')();
 // const cronPing = require('./cron-ping')
-app.use(cors());
-
+app.use(cors({ origin: true }));
 // Configuring body parser middleware
 
 app.use(express.urlencoded({ extended: true }));

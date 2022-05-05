@@ -18,4 +18,4 @@ module.exports.startDate =  new Date("2022-04-20T00:00:00.000Z").toISOString()
 
 var date = new Date();
 date.setDate(date.getDate() - 8);
-module.exports.endDate = new Date("2022-04-21T00:00:00.000Z").toISOString()
+module.exports.endDate = new Date("2022-04-20T00:00:00.000Z").toISOString()

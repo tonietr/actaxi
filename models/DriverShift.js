@@ -142,7 +142,8 @@ module.exports = (sequelize, DataTypes) => {
         DropoffLng: {
             type: DataTypes.DOUBLE,
             
-        }
+        },
+        timestamps: false
     })
     return DriverShift;
 }
