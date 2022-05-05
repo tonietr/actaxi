@@ -7,8 +7,7 @@ const res = require('express/lib/response');
 const TripData = require('../config/sequelize').TripData
 const perf = require('execution-time')();
 const MESSAGE = require('../message')
-var Bottleneck = require("bottleneck/es5");
-
+const {updateOrCreate} = require('../utils')
 const getBookingHistory = async(start, end, limit, offset) => {
     try {
         return await axios.get('https://api.icabbicanada.com/ca2/bookings/history', {
@@ -236,17 +235,6 @@ const combineAllDriverShifts = async (hoursWorkedResponse) => {
     return result
 }
 
-const updateOrCreate = async(model, where, item) => {
-    const found = await model.findOne({where})
-    if (!found) {
-        const newItem = await model.create(item)
-        return {created: true}
-    }
-
-    const updateItem = await model.update(item, {where})
-    return {created: false}
-}
-
 const processTripDataWithin = async (start, end, hoursWorkedResponse, limit, offset) => {
     //Get all booking within a time frame
     //Format the booking data according to PTB format
@@ -420,6 +408,16 @@ const processDailyBatch = async (start, end) => {
         }
     }
     return false
+}
+
+exports.getBookingHistoryWithin = async (start, end) => {
+    console.log('processing from: ', start, ' to: ', end)
+    perf.start()
+    const isSuccessful = await processDailyBatch(start, end)
+    console.log("The conversion from " , start, " ,to ", end, "took " , perf.stop().time)   
+    // if (isSuccessful) console.log("Successfully convert data from ", start, ",to: ", end)
+    // else console.log("The conversion failed from ", start, ",to: ", end)
+    return isSuccessful
 }
 
 exports.ONSTART_getBookingHistoryWithin = async (start, end) => {

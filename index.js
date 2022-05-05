@@ -2,19 +2,16 @@ const express = require('express')
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const app = express();
-const https = require('https')
 const port = 8081;
-const fs = require('graceful-fs');
 const ShiftController = require('./controller/shift.controller')
 const BookingHistoryController = require('./controller/booking.history.controller')
 const ConvertController = require('./controller/convert.controller')
 const {sequelize} = require('./config/sequelize')
-const COMPANY_DATA = require('./company.data')
+const COMPANY_DATA = require('./company.data');
 const perf = require('execution-time')();
-// const cronPing = require('./cron-ping')
-app.use(cors({ origin: true }));
-// Configuring body parser middleware
 
+
+app.use(cors({ origin: true }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
@@ -31,7 +28,9 @@ app.get('/convertToXML', async (req,res) => {
 });
 
 app.get('/getBooking', async (req, res) => {
-    BookingHistoryController.getBookingHistoryWithin(req.query.from, req.query.to, res);
+    const response = await BookingHistoryController.getBookingHistoryWithin(req.query.from, req.query.to, res);
+    if (response) res.status(200).send("Converted successsfully")
+    else res.status(500).send("Converted Failed")
 })
 
 app.listen(port, async () => {
@@ -39,15 +38,13 @@ app.listen(port, async () => {
     try {
         await sequelize.authenticate();
         //use alter to update database
-        await sequelize.sync({alter: true})
+        await sequelize.sync({force: true})
         console.log("Connected to database")
         console.log("Pulling data from the start date until 7 days from now...")
-        
         perf.start();
         await BookingHistoryController.ONSTART_getBookingHistoryWithin(COMPANY_DATA.startDate, COMPANY_DATA.endDate);
         console.log("Get Booking Data from" + "start: " + COMPANY_DATA.startDate + ", to end: " + COMPANY_DATA.endDate + ", Time Elapsed: ", perf.stop().time)
-        
-        // cronPing.cronSchedule()
+        const cronPing = require('./cron-ping');
     }
     catch (error) {
         console.error('Unable to connect to database')
