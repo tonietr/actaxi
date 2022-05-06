@@ -31,7 +31,6 @@
     "nodemon": "^2.0.15",
     "sequelize": "^6.18.0",
     "sequelize-cli": "^6.4.1",
-    "sqlite3": "^4.2.0",
     "table": "^6.8.0",
     "uuid": "^8.3.2",
     "xml2js": "^0.4.23"
